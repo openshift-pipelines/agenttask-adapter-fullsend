@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agenttask-output
+  namespace: agenttask-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 64Mi
+---
+apiVersion: agent.tekton.dev/v1alpha1
+kind: AgentTask
+metadata:
+  name: fullsend-fixture
+  namespace: agenttask-system
+spec:
+  description: Run the deterministic Fullsend Job contract fixture.
+  params:
+    - name: request
+      type: string
+  results:
+    - name: outcome
+      description: Whether the fixture completed or skipped.
+    - name: output-pvc
+      description: The PVC retaining detailed output.
+    - name: output-path
+      description: The relative output path on the PVC.
+    - name: output-digest
+      description: The output content digest.
+  adapterRef:
+    name: fullsend.ai/agenttask-adapter
+    params:
+      - name: profile
+        value: fixture-v1
+---
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: fullsend-agenttask-poc
+  namespace: agenttask-system
+spec:
+  pipelineSpec:
+    tasks:
+      - name: run
+        taskRef:
+          apiVersion: agent.tekton.dev/v1alpha1
+          kind: AgentTask
+          name: fullsend-fixture
+        params:
+          - name: request
+            value: success
+      - name: report
+        runAfter:
+          - run
+        params:
+          - name: outcome
+            value: $(tasks.run.results.outcome)
+          - name: output-pvc
+            value: $(tasks.run.results.output-pvc)
+          - name: output-path
+            value: $(tasks.run.results.output-path)
+          - name: output-digest
+            value: $(tasks.run.results.output-digest)
+        taskSpec:
+          params:
+            - name: outcome
+            - name: output-pvc
+            - name: output-path
+            - name: output-digest
+          steps:
+            - name: print
+              image: docker.io/library/busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+              script: |
+                printf 'outcome=%s output=%s/%s digest=%s\n' \
+                  "$(params.outcome)" "$(params.output-pvc)" \
+                  "$(params.output-path)" "$(params.output-digest)"

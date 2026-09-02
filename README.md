@@ -1,53 +1,84 @@
 # Fullsend AgentTask Adapter
 
-Experimental AgentTask Adapter for mapping a Tekton `CustomRun` to a Kubernetes
-Job running the existing Fullsend harness. It is being prototyped alongside
-[TEP-0170: AgentTask and Pluggable Agent Execution](https://github.com/tektoncd/community/pull/1263).
+Experimental AgentTask Adapter that maps a Tekton `CustomRun` to a deterministic
+Kubernetes Job using the lifecycle proposed by
+[TEP-0170](https://github.com/tektoncd/community/pull/1263).
 
-This repository is an experimental PoC scaffold. TEP-0170 is proposed, the
-shared API is unstable, and the adapter is not usable yet. Publication does not
-imply TEP acceptance, API compatibility, or product support.
+The current `fixture-v1` profile proves the Job boundary before integrating the
+real Fullsend/OpenShell runtime. It creates or adopts one Job per CustomRun
+attempt, persists the server-assigned Job UID, consumes one bounded termination
+record, exposes declared results, and foreground-deletes the Job during
+cancellation.
 
-## Current slice
+## Contract
 
-Implemented:
+Selector:
 
-- a fail-closed shell that compiles against the shared `AgentTaskAdapter`
-  interface and selects `fullsend.ai/agenttask-adapter`;
-- strict parsing and validation for the versioned, bounded Pod termination
-  record that a future Job wrapper will produce.
+```text
+fullsend.ai/agenttask-adapter
+```
 
-Not implemented:
+The fixed `fixture-v1` profile accepts one string param, `request`, and declares
+exactly these results:
 
-- a controller or Kubernetes deployment;
-- Job creation, adoption, observation, or foreground deletion;
-- source-workspace and revision verification;
-- the wrapper that invokes `fullsend run` and produces the termination record;
-- OpenShell gateway or sandbox integration;
-- cancellation, cleanup, status writing, restart recovery, RBAC, or conformance
-  tests.
+- `outcome`: `completed` or `skipped`;
+- `output-pvc`;
+- `output-path`; and
+- `output-digest`.
 
-Every lifecycle method returns `ErrNotImplemented` without creating or mutating
-anything. A future PoC deployment will use one active controller leader and
-will not implement distributed adapter claiming. This scaffold is therefore
-**not TEP-0170 conformant**.
+The controller receives the Job image through `FULLSEND_IMAGE`; Pipeline input
+cannot select an image, ServiceAccount, or namespace. Deployments must pin that
+image by digest; the local Kind test is the only tag-based exception. The image must write one
+`fullsend.ai/agenttask-result/v1alpha1` JSON object to its termination message.
+Detailed output stays on the fixed `agenttask-output` PVC and is represented by
+a credential-free Kubernetes reference.
 
-The parser accepts one JSON object no larger than 4096 bytes. It validates the
-schema version, final process status, pre-script skip decision, and a
-credential-free reference to output retained on a namespaced PVC. It never
-parses or copies Fullsend transcripts, `output.jsonl`, `metrics.json`, findings,
-or archives into Tekton status.
+The repository includes `cmd/fixture`, a deterministic contract fixture used by
+unit and Kind end-to-end tests. It is not the Fullsend harness.
+
+## Security boundary
+
+- the controller is namespace-scoped;
+- Jobs run as non-root with a read-only root filesystem, dropped capabilities,
+  runtime-default seccomp, and no mounted ServiceAccount token;
+- the Job uses the fixed, unprivileged `fullsend-job` ServiceAccount;
+- the controller cannot read Secrets, exec into Pods, impersonate identities,
+  or delete Pods directly;
+- adoption requires the CustomRun owner UID, attempt identity, trusted-profile
+  digest, immutable Job shape, and persisted Job UID;
+- an uncertain create must remain absent for a bounded settle interval before
+  pre-creation cancellation completes;
+- cancellation uses a UID precondition and foreground Job deletion, waits until
+  no owned Pod remains, and reports `CleanupFailed` after the PoC deadline; and
+- transcripts and raw Fullsend output are never copied into CustomRun status.
+
+The output PVC is intentionally retained as the profile's artifact-retention
+policy. `CleanupFailed` retains the native reference and cleanup finalizer; a
+framework-level finalizer-release deadline remains follow-up work.
 
 ## Development
 
 ```sh
 make verify
 make test
+make e2e-kind
 ```
 
-`go.mod` pins an experimental `github.com/openshift-pipelines/agenttask`
-version. Update that pin deliberately with any matching adapter contract
-change.
+The E2E proves result substitution, restart-safe Job adoption, correlated
+cancellation, Pod cleanup, and denied Secret, Pod-delete, exec, and impersonation
+permissions.
+
+## Real Fullsend harness follow-up
+
+Fullsend v0.39.0's runner image contains the host-side CLI and OpenShell client,
+but requires a separately deployed OpenShell gateway, sandbox supervisor, and
+client mTLS configuration. `fullsend run` also does not yet expose the bounded
+termination-record seam used here. A real-harness profile must add that stable
+result seam and a reviewed Kubernetes OpenShell topology; it must not disable
+sandboxing or mount a host container socket to make the test pass.
+
+This repository remains an experimental PoC. It does not imply TEP acceptance,
+API compatibility, or product support.
 
 ## License
 
