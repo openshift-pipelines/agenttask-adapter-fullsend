@@ -1,0 +1,35 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fullsend-agenttask-adapter
+  namespace: agenttask-system
+rules:
+  - apiGroups: ["agent.tekton.dev"]
+    resources: ["agenttasks"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["tekton.dev"]
+    resources: ["customruns"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["tekton.dev"]
+    resources: ["customruns/status", "customruns/finalizers"]
+    verbs: ["patch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fullsend-agenttask-adapter
+  namespace: agenttask-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fullsend-agenttask-adapter
+subjects:
+  - kind: ServiceAccount
+    name: fullsend-agenttask-adapter
+    namespace: agenttask-system

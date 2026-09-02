@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fullsend-agenttask-adapter
+  namespace: agenttask-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fullsend-agenttask-adapter
+  template:
+    metadata:
+      labels:
+        app: fullsend-agenttask-adapter
+    spec:
+      serviceAccountName: fullsend-agenttask-adapter
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: ko.local/fullsend-agenttask-adapter:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: FULLSEND_IMAGE
+              value: ko.local/fullsend-fixture:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 256Mi
