@@ -1,0 +1,9 @@
+# Copyright 2026 The AgentTask Authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Isolated Kind testing only. TLS and client-certificate verification remain
+# enabled, but callers holding the generated client certificate share one local
+# developer principal because no OIDC issuer exists in the disposable cluster.
+server:
+  auth:
+    allowUnauthenticatedUsers: true
