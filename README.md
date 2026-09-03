@@ -62,20 +62,86 @@ framework-level finalizer-release deadline remains follow-up work.
 make verify
 make test
 make e2e-kind
+make e2e-openshell-kind
 ```
 
-The E2E proves result substitution, restart-safe Job adoption, correlated
-cancellation, Pod cleanup, and denied Secret, Pod-delete, exec, and impersonation
-permissions.
+The fixture E2E proves result substitution, restart-safe Job adoption,
+correlated cancellation, Pod cleanup, and denied Secret, Pod-delete, exec, and
+impersonation permissions. The OpenShell E2E creates its own disposable cluster
+and proves package installation, client-certificate enforcement, sandbox
+execution and cleanup, safe uninstall refusal, and retained-state behavior.
+
+## Packaged OpenShell
+
+The repository packages, but does not embed or reimplement, the OpenShell
+runtime required by Fullsend. The installer deploys the official OpenShell Helm
+chart at `0.0.116`, the version pinned by Fullsend v0.39.0, plus Agent Sandbox
+v0.5.0. Downloaded artifacts and all packaged runtime images are pinned and
+verified by digest or SHA-256.
+
+An authenticated shared-cluster install keeps TLS enabled and requires an
+operator-supplied OIDC configuration. The installer rejects an absent or
+non-HTTPS issuer:
+
+```sh
+KUBECTL_CONTEXT=my-context \
+OPENSHELL_EXTRA_VALUES_FILE=/path/to/oidc-values.yaml \
+make install-openshell
+```
+
+For a disposable Kind cluster only, the test overlay keeps mutual TLS enabled
+but maps holders of the generated client certificate to one local developer
+principal:
+
+```sh
+KUBECTL_CONTEXT=kind-agenttask-fullsend-poc make install-openshell-kind
+```
+
+Quiesce gateway clients before uninstalling. `make uninstall-openshell` refuses
+to remove a gateway with active or unattributed Sandbox resources. After
+removal it retains the shared Agent
+Sandbox controller and the namespaced data PVC plus generated PKI/JWT/KEK
+Secrets so an operator can reinstall without losing identity or encrypted
+state; unused certificate-hook RBAC is removed. Delete that namespace
+separately only after confirming the retained state is no longer needed. Installation fails rather than replacing an
+existing Agent Sandbox controller at a different version.
+
+The adapter, gateway, and sandbox supervisor remain separate workloads and
+ServiceAccounts. Treat one gateway installation as one trust domain; do not
+share its provider and sandbox records across mutually untrusted tenants.
+
+OpenShell's current OpenShift installation is experimental and requires the
+sandbox ServiceAccount to use the `privileged` SCC. For a disposable evaluation
+cluster, review and grant that SCC explicitly, then use the packaged overlay so
+OpenShift assigns the gateway UID and FS group:
+
+```sh
+oc --context=my-openshift-context create namespace openshell-system
+oc --context=my-openshift-context adm policy add-scc-to-user privileged \
+  -z openshell-sandbox -n openshell-system
+KUBECTL_CONTEXT=my-openshift-context \
+OPENSHELL_EXTRA_VALUES_FILE=/path/to/oidc-values.yaml \
+make install-openshell-openshift
+```
+
+The SCC grant outlives Helm resources. Revoke it when removing this evaluation:
+
+```sh
+KUBECTL_CONTEXT=my-openshift-context make uninstall-openshell
+oc --context=my-openshift-context adm policy remove-scc-from-user privileged \
+  -z openshell-sandbox -n openshell-system
+```
+
+The installer still forces TLS on. Do not use the privileged sandbox topology
+or OpenShell's TLS-disabled evaluation configuration on a shared cluster.
 
 ## Real Fullsend harness follow-up
 
-Fullsend v0.39.0's runner image contains the host-side CLI and OpenShell client,
-but requires a separately deployed OpenShell gateway, sandbox supervisor, and
-client mTLS configuration. `fullsend run` also does not yet expose the bounded
-termination-record seam used here. A real-harness profile must add that stable
-result seam and a reviewed Kubernetes OpenShell topology; it must not disable
-sandboxing or mount a host container socket to make the test pass.
+The packaged gateway supplies the sandbox control plane, but `fullsend run`
+still does not expose the bounded termination-record and deterministic cleanup
+seams used by this adapter. A real-harness profile must add those seams and a
+reviewed Kubernetes OpenShell topology; it must not disable sandboxing or mount
+a host container socket to make the test pass.
 
 This repository remains an experimental PoC. It does not imply TEP acceptance,
 API compatibility, or product support.

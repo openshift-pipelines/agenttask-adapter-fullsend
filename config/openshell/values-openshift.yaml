@@ -1,0 +1,11 @@
+# Copyright 2026 The AgentTask Authors
+# SPDX-License-Identifier: Apache-2.0
+
+# OpenShift assigns gateway identity from the namespace's SCC ranges. The
+# sandbox ServiceAccount still requires a separately reviewed SCC decision;
+# this overlay does not grant one or disable TLS.
+podSecurityContext:
+  fsGroup: null
+
+securityContext:
+  runAsUser: null
